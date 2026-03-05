@@ -1,9 +1,20 @@
 # Research Synthesis: Multi-Agent Orchestration Framework
 
-**Date:** 2026-03-05
-**Status:** COMPLETE
-**Sources:** competitor-analysis.md, tech-stack-recommendation.md, implementation-patterns.md
-**4th file (domain-ecosystem.md):** Not available at synthesis time. Findings here are based on three files.
+**Date:** 2026-03-06 (Updated)
+**Status:** COMPLETE (v2 — incorporates external research documents)
+**Sources:** competitor-analysis.md, tech-stack-recommendation.md, implementation-patterns.md, domain-ecosystem.md
+**External Sources (added 2026-03-06):**
+- "2025-2026 State of AgentOps and Multi-Agent Orchestration" (docx)
+- "Technical Selection Report: Orchestrating Collaborative Intelligence" (docx)
+- "Comparison of AI Agent Orchestration Frameworks" (xlsx — 21 frameworks, 32 sources)
+- "The Evolution of Multi-Agent Orchestration: Comparative Analysis" (PDF — 14 pages, 54 sources)
+
+**New documents added 2026-03-06:**
+- `research/best-elements-synthesis.md` — Best elements from all 25+ frameworks combined into Orchestra
+- `planning/architecture-refinements.md` — 9 concrete architecture changes from new research
+- `planning/STRATEGIC-POSITIONING.md` — Competitive positioning against all frameworks
+
+**Constraint:** All components must be FREE / open-source / self-hostable. No proprietary lock-in.
 
 ---
 
@@ -33,6 +44,14 @@ The vision is to be the framework that "serious builders" choose when CrewAI is 
 | **Semantic Kernel** | Plugin architecture + kernel DI container | Clean separation between AI services and business logic. Multi-language support pattern (Python/C#/Java). SK Process bridges BPM and LLM orchestration. | Adopt Protocol-first plugin design (Python structural subtyping). Avoid SK's verbose boilerplate. Focus on Python-first with TypeScript SDK, not full multi-language parity. |
 | **Google ADK** | ParallelAgent / SequentialAgent / LoopAgent primitives | Clean, composable workflow primitives for deterministic sub-flows within agentic workflows. | Make these first-class node types in the graph engine rather than separate agent classes. Enable mixing deterministic workflow nodes with LLM-driven decision nodes. |
 | **AWS Bedrock** | Guardrails + managed knowledge bases | Most comprehensive AI safety control plane. Auto-chunking/embedding/indexing for knowledge bases eliminates RAG pipeline boilerplate. | Build a guardrails middleware layer (content filtering, PII detection, cost limits, rate limiting) as composable decorators on agent nodes. Ship a local knowledge base backed by pgvector, not tied to AWS. |
+| **Haystack** | Typed-I/O component pipelines + production RAG | Best type safety and strongest RAG implementation. Catches integration errors at compile time. | Integrate typed I/O validation into graph compile step. Adopt component patterns for knowledge base integration. |
+| **Temporal** | Durable execution that survives restarts + Saga pattern | Gold standard for long-running workflow reliability. Used by OpenAI for Codex. | Event sourcing + checkpointing for built-in durability. Optional Temporal backend. Saga pattern for rollback. |
+| **Mastra** | Native OpenTelemetry + RAG knowledge primitives | OTel built into core from day one. Knowledge bases as first-class nodes. | Mirror: OTel always on. Knowledge base queries as graph nodes. |
+| **GraphBit** | Memory safety for infinite loop prevention | Compile-time guarantees against drift and infinite loops. | max_turns guard + compile-time cycle detection + per-node circuit breakers. |
+| **n8n** | MCP host + client + 1000+ integrations | Bridges AI agents with legacy BPA. Both consumes and exposes MCP tools. | Orchestra as MCP host, client, AND server. |
+| **Salesforce (patterns)** | Atlas topic routing + Conversational/Proactive agent types | Best task routing via capability matching. Proactive agents for event-driven automation. | RouterNode + event-driven triggers (webhook, schedule, data change). |
+| **IBM watsonx (patterns)** | React/Plan-Act/Deterministic orchestration styles + nested agents | Three clean orchestration modes covering all use cases. | Built-in pattern constructors: react_loop(), plan_and_execute(), deterministic_pipeline(). |
+| **Siemens (patterns)** | Real-time SLO constraints (200-500ms) + Digital Twin integration | Agent systems under strict time budgets. Physics-accurate simulation. | Per-node timeout enforcement + circuit breakers + "Environment Agent" pattern. |
 
 ---
 
@@ -292,6 +311,35 @@ Attempting to build Phase 3-4 features before Phase 1 is rock-solid would be a s
 
 **Bottom line:** The combination is achievable because the architecture is layered, not monolithic. Each layer (graph, state, communication, tools, security, observability) has clean boundaries. The risk is not architectural incompatibility -- it is scope management and API design quality.
 
+### Compatibility Assessment of New Elements (2026-03-06 Update)
+
+After analyzing 25+ frameworks and selecting ~75 elements, the following compatibility assessment applies:
+
+**Fully Compatible (No Tension):**
+- Salesforce routing patterns + graph engine = RouterNode (just a conditional edge)
+- IBM orchestration styles + graph engine = built-in pattern constructors (syntactic sugar)
+- Haystack typed I/O + graph compile step = compile-time edge type validation
+- Bedrock guardrails + middleware pattern = composable decorators (clean layering)
+- Temporal durability + event sourcing = same persistence layer, different guarantees
+- MCP + A2A + tool registry = three interfaces to the same tool system
+- Circuit breakers + kill switches + graph executor = pre-execution checks (clean hooks)
+- Anomaly taxonomy + error hierarchy = Python exception classes (zero runtime cost)
+- Memory synthesis + multi-tier memory = periodic background job (orthogonal to core)
+
+**Manageable Tension (Requires Careful Design):**
+- CrewAI simplicity + LangGraph graph power = progressive complexity API (the core design challenge)
+- Event sourcing overhead + real-time SLOs = configurable event granularity (full/coarse/off)
+- DID identity + developer velocity = progressive modes (dev/prod/federated)
+- SRE Scout/Sniper pattern + latency budgets = Scout must be fast enough (<50ms)
+- A2A interop + capability-based security = external agents get scoped sessions
+
+**Not Attempted (Would Create Irreconcilable Tension):**
+- We do NOT try to combine AutoGen's forced actor model with simple asyncio default
+- We do NOT try to replicate Salesforce's native CRM data access (platform-specific)
+- We do NOT try to embed visual builder in core (API-first, visual builders are third-party)
+- We do NOT try to match Siemens' physics-level simulation (too domain-specific)
+- We do NOT try to replicate IBM's 100+ pre-built enterprise connectors (MCP ecosystem instead)
+
 ---
 
 ## Confidence Assessment
@@ -305,13 +353,34 @@ Attempting to build Phase 3-4 features before Phase 1 is rock-solid would be a s
 | Novel innovations | MEDIUM | Innovations are architecturally sound but unproven in practice. Intelligent cost routing in particular needs prototype validation. |
 | Feasibility | MEDIUM | The combination is architecturally coherent but execution risk is high. API design quality will determine success. |
 
-### Gaps to Address
+### Gaps Addressed by External Documents (2026-03-06 Update)
 
-1. **Domain ecosystem research** (4th file not available): Need analysis of target verticals (SaaS, fintech, healthcare) and their specific multi-agent requirements
-2. **Benchmarking strategy**: No framework has good benchmarks. Need to define what "better" means for Orchestra
-3. **Community and adoption strategy**: Technical merit alone will not beat LangGraph's ecosystem. Need a developer relations and community plan
-4. **Pricing/licensing model**: Open-source core + commercial cloud (like LangGraph Cloud) or pure open-source
-5. **MCP ecosystem maturity**: MCP is the bet for tool integration, but the ecosystem is still young. Need fallback strategy if MCP adoption stalls
+1. **Domain ecosystem research** -- ADDRESSED: PDF document covers enterprise verticals (Salesforce CRM, IBM HR/Finance/Procurement, Siemens Industrial). See `best-elements-synthesis.md` Section 2.
+2. **Benchmarking strategy** -- PARTIALLY ADDRESSED: PDF provides Salesforce Agentforce metrics (2-5x capacity gain, <5 min response). Need Orchestra-specific benchmarks.
+3. **Community and adoption strategy** -- ADDRESSED: See `STRATEGIC-POSITIONING.md` Sections 8-10 (go-to-market, success metrics).
+4. **Pricing/licensing model** -- DECIDED: 100% free, Apache 2.0. See `STRATEGIC-POSITIONING.md` Section 7.
+5. **MCP ecosystem maturity** -- ADDRESSED: MCP now adopted by OpenAI, Google, and broader ISV industry. Described as "USB-C of AI integrations." Confirmed as primary tool integration protocol.
+
+### New Gaps Identified from External Documents
+
+1. **Anomaly detection implementation**: The two-layer anomaly taxonomy (intra-agent vs. inter-agent) from the Technical Selection Report needs concrete detection algorithms. See `architecture-refinements.md` Refinement 1.
+2. **DID/VC infrastructure**: Decentralized Identifiers for cross-org agent trust require ledger/registry infrastructure. This is Phase 4 and may need further research.
+3. **A2A protocol v0.3 specification**: Need to track Google's evolving A2A spec for compatibility. Current design based on Feb 2026 version.
+4. **Cost router validation**: The SRE Scout/Sniper pattern needs prototype validation to confirm cost savings claims (45% reduction cited in research).
+5. **Real-time SLO enforcement**: Siemens-style 200-500ms constraints require benchmarking Orchestra's graph execution overhead.
+
+### Key Quantitative Findings from External Documents
+
+| Finding | Source | Impact |
+|---|---|---|
+| Single-model reasoning degrades 73% with long contexts ("Lost in the Middle") | 2025 AgentOps doc | Validates distributed multi-agent approach |
+| CrewAI 5.76x faster deployment for structured tasks | PDF + AgentOps doc | Sets benchmark for Orchestra's time-to-value |
+| Adversarial collaboration improves accuracy 23% | Technical Selection Report | Validates debate/review loop patterns |
+| Redundant parallel calls increase costs 5-6x | 2025 AgentOps doc | Validates SRE Filter Pattern in cost router |
+| Planner-Executor pattern reduces inference costs ~45% | 2025 AgentOps doc | Validates plan_and_execute() built-in pattern |
+| Salesforce multi-agent: 2-5x SDR capacity, <5 min response | PDF Salesforce section | Benchmark for supervisor routing pattern |
+| Kill-switch SLO target: ≤5 min revocation | PDF Security section | Target for Orchestra's circuit breaker system |
+| PepsiCo Digital Twin: 90% issue detection, 20% throughput gain | PDF Siemens section | Validates environment agent pattern |
 
 ---
 
