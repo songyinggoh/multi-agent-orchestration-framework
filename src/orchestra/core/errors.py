@@ -1,0 +1,124 @@
+"""Centralized error hierarchy for Orchestra framework.
+
+Every error includes: (a) what happened, (b) where, (c) how to fix.
+"""
+
+from __future__ import annotations
+
+
+class OrchestraError(Exception):
+    """Base exception for all Orchestra errors."""
+
+
+# --- Graph Errors ---
+
+
+class GraphError(OrchestraError):
+    """Base for graph-related errors."""
+
+
+class GraphCompileError(GraphError):
+    """Raised when graph compilation/validation fails."""
+
+
+class UnreachableNodeError(GraphError):
+    """Raised when a node has no incoming edges."""
+
+
+class CycleWithoutGuardError(GraphError):
+    """Raised when a cycle has no exit condition or max_turns guard."""
+
+
+class StateConflictError(GraphError):
+    """Raised when parallel writes conflict without a reducer."""
+
+
+# --- Agent Errors ---
+
+
+class AgentError(OrchestraError):
+    """Base for agent-related errors."""
+
+
+class AgentTimeoutError(AgentError):
+    """Raised when an agent exceeds its time limit."""
+
+
+class OutputValidationError(AgentError):
+    """Raised when agent output fails structured output validation."""
+
+
+class MaxIterationsError(AgentError):
+    """Raised when an agent exceeds max tool-calling iterations."""
+
+
+# --- Provider Errors ---
+
+
+class ProviderError(OrchestraError):
+    """Base for LLM provider errors."""
+
+
+class RateLimitError(ProviderError):
+    """Raised when rate limited by the provider."""
+
+    def __init__(self, message: str, retry_after_seconds: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+class AuthenticationError(ProviderError):
+    """Raised when API key is invalid or missing."""
+
+
+class ContextWindowError(ProviderError):
+    """Raised when input exceeds the model's context window."""
+
+    def __init__(
+        self, message: str, context_length: int = 0, max_context_length: int = 0
+    ) -> None:
+        super().__init__(message)
+        self.context_length = context_length
+        self.max_context_length = max_context_length
+
+
+class ProviderUnavailableError(ProviderError):
+    """Raised when the provider endpoint is unreachable."""
+
+
+# --- Tool Errors ---
+
+
+class ToolError(OrchestraError):
+    """Base for tool-related errors."""
+
+
+class ToolNotFoundError(ToolError):
+    """Raised when a requested tool is not registered."""
+
+
+class ToolTimeoutError(ToolError):
+    """Raised when a tool execution exceeds its time limit."""
+
+
+class ToolPermissionError(ToolError):
+    """Raised when an agent lacks permission to use a tool."""
+
+
+class ToolExecutionError(ToolError):
+    """Raised when a tool execution fails."""
+
+
+# --- State Errors ---
+
+
+class StateError(OrchestraError):
+    """Base for state-related errors."""
+
+
+class ReducerError(StateError):
+    """Raised when a reducer function fails."""
+
+
+class StateValidationError(StateError):
+    """Raised when state fails Pydantic validation."""

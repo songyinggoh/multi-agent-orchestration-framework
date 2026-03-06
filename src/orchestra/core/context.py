@@ -1,0 +1,42 @@
+"""ExecutionContext: runtime context injected into agents.
+
+Provides agents with access to state, provider, tools, and run metadata
+without making them hold direct references.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class ExecutionContext:
+    """Runtime context passed to agents during execution.
+
+    Phase 1 provides: run metadata, state, provider, tools.
+    Phase 2+ adds: memory, identity, telemetry, secrets.
+    """
+
+    # Run metadata
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    thread_id: str = ""
+    turn_number: int = 0
+    node_id: str = ""
+
+    # Current workflow state (read-only view for agents)
+    state: dict[str, Any] = field(default_factory=dict)
+
+    # Injected LLM provider (satisfies LLMProvider protocol)
+    provider: Any = None
+
+    # Tool registry
+    tool_registry: Any = None
+
+    # Configuration
+    config: dict[str, Any] = field(default_factory=dict)
+
+    def get_config(self, key: str, default: Any = None) -> Any:
+        """Get a configuration value."""
+        return self.config.get(key, default)
