@@ -209,6 +209,12 @@ class WorkflowGraph:
 
         Must be called after .parallel().
         """
+        if not hasattr(self, "_parallel_nodes"):
+            raise GraphCompileError(
+                "Cannot join without a preceding .parallel() call.\n"
+                "  Fix: Call .parallel(agent_a, agent_b) before .join(joiner)."
+            )
+
         node_id = name or _get_node_name(agent_or_fn)
         self.add_node(node_id, agent_or_fn)
 
@@ -332,14 +338,23 @@ class WorkflowGraph:
         if self._last_node is not None and self._last_node != node_id:
             self.add_edge(self._last_node, node_id)
 
-        iteration_count = 0
+        # Track iteration count per loop per run using a dict keyed by
+        # a unique loop id. The dict is created fresh each time _loop_condition
+        # is called with a state that has no prior counter, effectively resetting
+        # between runs since each run starts with fresh state.
+        loop_id = f"__loop_{node_id}"
+        counters: dict[str, int] = {}
 
         def _loop_condition(state: dict[str, Any]) -> Any:
-            nonlocal iteration_count
-            iteration_count += 1
-            if iteration_count >= max_iterations:
+            count = counters.get(loop_id, 0) + 1
+            counters[loop_id] = count
+            if count >= max_iterations:
+                counters.pop(loop_id, None)
                 return END
-            return node_id if condition(state) else END
+            if condition(state):
+                return node_id
+            counters.pop(loop_id, None)
+            return END
 
         self.add_conditional_edge(node_id, _loop_condition)
         self._last_node = node_id

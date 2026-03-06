@@ -134,9 +134,9 @@ class CompiledGraph:
                 else:
                     state.update(update)
 
-            # Determine next node
+            # Determine next node (parallel execution may update state)
             state_dict = state.model_dump() if isinstance(state, WorkflowState) else dict(state)
-            current_node_id = await self._resolve_next(
+            current_node_id, state = await self._resolve_next(
                 str(current_node_id), state_dict, state, context
             )
 
@@ -268,26 +268,33 @@ class CompiledGraph:
         state_dict: dict[str, Any],
         state: WorkflowState | dict[str, Any],
         context: ExecutionContext,
-    ) -> Any:
-        """Determine the next node based on outgoing edges."""
+    ) -> tuple[Any, WorkflowState | dict[str, Any]]:
+        """Determine the next node based on outgoing edges.
+
+        Returns (next_node_id, updated_state). State may change during
+        parallel execution.
+        """
         edges = self._edge_map.get(current_node_id, [])
 
         if not edges:
-            return END
+            return END, state
 
         for edge in edges:
             if isinstance(edge, Edge):
-                return edge.target
+                return edge.target, state
 
             elif isinstance(edge, ConditionalEdge):
                 result = edge.resolve(state_dict)
-                return result
+                return result, state
 
             elif isinstance(edge, ParallelEdge):
-                await self._execute_parallel(edge, state_dict, state, context)
-                return edge.join_node if edge.join_node is not None else END
+                new_state = await self._execute_parallel(
+                    edge, state_dict, state, context
+                )
+                next_node = edge.join_node if edge.join_node is not None else END
+                return next_node, new_state
 
-        return END
+        return END, state
 
     async def _execute_parallel(
         self,
@@ -295,8 +302,11 @@ class CompiledGraph:
         state_dict: dict[str, Any],
         state: WorkflowState | dict[str, Any],
         context: ExecutionContext,
-    ) -> None:
-        """Execute parallel targets concurrently and merge results."""
+    ) -> WorkflowState | dict[str, Any]:
+        """Execute parallel targets concurrently and merge results.
+
+        Returns a new state instance (preserves immutability).
+        """
         tasks = []
         for target_id in edge.targets:
             node = self._nodes[target_id]
@@ -316,14 +326,12 @@ class CompiledGraph:
         updates = [r for r in results if isinstance(r, dict)]
 
         if isinstance(state, WorkflowState):
-            merged = merge_parallel_updates(state, updates, self._reducers)
-            # Update state in place by replacing model fields
-            for key, value in merged.model_dump().items():
-                if isinstance(state, WorkflowState):
-                    object.__setattr__(state, key, value)
+            return merge_parallel_updates(state, updates, self._reducers)
         else:
+            merged = dict(state)
             for update in updates:
-                state.update(update)
+                merged.update(update)
+            return merged
 
     def to_mermaid(self) -> str:
         """Generate a Mermaid diagram of the graph.

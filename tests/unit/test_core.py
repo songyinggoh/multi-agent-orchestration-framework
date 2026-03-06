@@ -367,6 +367,191 @@ class TestExecution:
         assert result["output"] == "step1+step2"
 
 
+# ===== Fluent API =====
+
+
+class TestFluentAPI:
+    @pytest.mark.asyncio
+    async def test_branch_routes_correctly(self):
+        class S(WorkflowState):
+            category: str = ""
+            output: str = ""
+
+        async def classifier(state: dict) -> dict:
+            return {"category": "tech"}
+
+        async def tech_handler(state: dict) -> dict:
+            return {"output": "tech result"}
+
+        async def creative_handler(state: dict) -> dict:
+            return {"output": "creative result"}
+
+        g = (
+            WorkflowGraph(state_schema=S)
+            .then(classifier, name="classify")
+            .branch(
+                lambda s: s.get("category", ""),
+                {"tech": tech_handler, "creative": creative_handler},
+            )
+        )
+        result = await g.compile().run({})
+        assert result["output"] == "tech result"
+
+    @pytest.mark.asyncio
+    async def test_if_then_true_branch(self):
+        class S(WorkflowState):
+            approved: bool = False
+            output: str = ""
+
+        async def checker(state: dict) -> dict:
+            return {"approved": True}
+
+        async def publisher(state: dict) -> dict:
+            return {"output": "published"}
+
+        async def reviser(state: dict) -> dict:
+            return {"output": "revised"}
+
+        g = (
+            WorkflowGraph(state_schema=S)
+            .then(checker, name="check")
+            .if_then(lambda s: s.get("approved", False), publisher, reviser)
+        )
+        result = await g.compile().run({})
+        assert result["output"] == "published"
+
+    @pytest.mark.asyncio
+    async def test_if_then_false_branch(self):
+        class S(WorkflowState):
+            approved: bool = False
+            output: str = ""
+
+        async def checker(state: dict) -> dict:
+            return {"approved": False}
+
+        async def publisher(state: dict) -> dict:
+            return {"output": "published"}
+
+        async def reviser(state: dict) -> dict:
+            return {"output": "revised"}
+
+        g = (
+            WorkflowGraph(state_schema=S)
+            .then(checker, name="check")
+            .if_then(lambda s: s.get("approved", False), publisher, reviser)
+        )
+        result = await g.compile().run({})
+        assert result["output"] == "revised"
+
+    @pytest.mark.asyncio
+    async def test_if_then_without_else(self):
+        class S(WorkflowState):
+            done: bool = False
+            output: str = "initial"
+
+        async def checker(state: dict) -> dict:
+            return {"done": False}
+
+        async def extra_step(state: dict) -> dict:
+            return {"output": "extra"}
+
+        g = (
+            WorkflowGraph(state_schema=S)
+            .then(checker, name="check")
+            .if_then(lambda s: s.get("done", False), extra_step)
+        )
+        result = await g.compile().run({})
+        assert result["output"] == "initial"
+
+    @pytest.mark.asyncio
+    async def test_loop_repeats_until_condition_false(self):
+        class S(WorkflowState):
+            count: Annotated[int, sum_numbers] = 0
+
+        async def incrementer(state: dict) -> dict:
+            return {"count": 1}
+
+        g = (
+            WorkflowGraph(state_schema=S)
+            .then(incrementer, name="start")
+            .loop(
+                incrementer, name="looper",
+                condition=lambda s: s.get("count", 0) < 3, max_iterations=10,
+            )
+        )
+        result = await g.compile().run({})
+        assert result["count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_loop_respects_max_iterations(self):
+        class S(WorkflowState):
+            count: Annotated[int, sum_numbers] = 0
+
+        async def incrementer(state: dict) -> dict:
+            return {"count": 1}
+
+        g = (
+            WorkflowGraph(state_schema=S)
+            .then(incrementer, name="start")
+            .loop(incrementer, name="looper", condition=lambda s: True, max_iterations=3)
+        )
+        result = await g.compile().run({})
+        # start gives 1, loop runs 3 times (max_iterations), total = 4
+        assert result["count"] == 4
+
+    @pytest.mark.asyncio
+    async def test_loop_counter_resets_between_runs(self):
+        class S(WorkflowState):
+            count: Annotated[int, sum_numbers] = 0
+
+        async def incrementer(state: dict) -> dict:
+            return {"count": 1}
+
+        g = (
+            WorkflowGraph(state_schema=S)
+            .then(incrementer, name="start")
+            .loop(incrementer, name="looper", condition=lambda s: True, max_iterations=3)
+        )
+        compiled = g.compile()
+
+        result1 = await compiled.run({})
+        result2 = await compiled.run({})
+        # Both runs should produce the same result
+        assert result1["count"] == result2["count"]
+
+    @pytest.mark.asyncio
+    async def test_fluent_parallel_join(self):
+        class S(WorkflowState):
+            items: Annotated[list[str], merge_list] = []
+
+        async def noop(state: dict) -> dict:
+            return {}
+
+        async def worker_a(state: dict) -> dict:
+            return {"items": ["a"]}
+
+        async def worker_b(state: dict) -> dict:
+            return {"items": ["b"]}
+
+        g = (
+            WorkflowGraph(state_schema=S)
+            .then(noop, name="start")
+            .parallel(worker_a, worker_b, names=["wa", "wb"])
+            .join(noop, name="join")
+        )
+        result = await g.compile().run({})
+        assert "a" in result["items"]
+        assert "b" in result["items"]
+
+    def test_join_without_parallel_raises(self):
+        async def noop(state: dict) -> dict:
+            return {}
+
+        g = WorkflowGraph().then(noop, name="start")
+        with pytest.raises(GraphCompileError, match="Cannot join without"):
+            g.join(noop, name="join")
+
+
 # ===== Tools =====
 
 

@@ -14,6 +14,7 @@ import inspect
 from collections.abc import Callable
 from typing import Any
 
+import structlog
 from pydantic import BaseModel, Field
 
 from orchestra.core.context import ExecutionContext
@@ -28,6 +29,8 @@ from orchestra.core.types import (
     ToolCallRecord,
     ToolResult,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class BaseAgent(BaseModel):
@@ -142,8 +145,13 @@ class BaseAgent(BaseModel):
             if self.output_type and output_text:
                 try:
                     structured = self.output_type.model_validate_json(output_text)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        "structured_output_validation_failed",
+                        agent=self.name,
+                        output_type=self.output_type.__name__,
+                        error=str(e),
+                    )
 
             return AgentResult(
                 agent_name=self.name,
