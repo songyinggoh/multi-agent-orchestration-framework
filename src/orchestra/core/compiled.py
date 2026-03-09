@@ -8,6 +8,7 @@ edges and applying state updates via reducers.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 import warnings
 from datetime import datetime, timezone
@@ -48,6 +49,7 @@ class CompiledGraph:
         state_schema: type[Any] | None = None,
         max_turns: int = 50,
         name: str = "",
+        handoff_edges: list[Any] | None = None,
     ) -> None:
         self._nodes = nodes
         self._edges = edges
@@ -55,6 +57,7 @@ class CompiledGraph:
         self._state_schema = state_schema
         self._max_turns = max_turns
         self._name = name
+        self._handoff_edges: list[Any] = handoff_edges or []
 
         # Pre-compute edge lookup
         self._edge_map: dict[str, list[Edge | ConditionalEdge | ParallelEdge]] = {}
@@ -159,6 +162,19 @@ class CompiledGraph:
                 await _bound_store.append(e)  # type: ignore[arg-type]
 
             event_bus.subscribe(_store_callback)
+
+        # 2b. Set up trace renderer
+        _renderer = None
+        _default_trace = "rich" if os.environ.get("ORCHESTRA_ENV", "dev") == "dev" else "off"
+        trace_mode = os.environ.get("ORCHESTRA_TRACE", _default_trace)
+        if trace_mode != "off":
+            try:
+                from orchestra.observability.console import RichTraceRenderer
+                _renderer = RichTraceRenderer(verbose=(trace_mode == "verbose"))
+                event_bus.subscribe(_renderer.on_event)
+                _renderer.start()
+            except ImportError:
+                _renderer = None
 
         # 3. Emit RunStarted
         run_start_time = datetime.now(timezone.utc)
@@ -280,6 +296,8 @@ class CompiledGraph:
                     effective_run_id, "failed", completed_at
                 )
                 await event_store.close()  # type: ignore[union-attr]
+            if _renderer is not None:
+                _renderer.stop()
             raise
 
         # 5a. Emit RunCompleted
@@ -300,6 +318,9 @@ class CompiledGraph:
                 effective_run_id, "completed", completed_at
             )
             await event_store.close()  # type: ignore[union-attr]
+
+        if _renderer is not None:
+            _renderer.stop()
 
         return final_state_dict
 
