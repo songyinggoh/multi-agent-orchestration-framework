@@ -31,10 +31,18 @@ from orchestra.storage.contracts import BoundaryContract, ContractRegistry
 from orchestra.storage.store import EventBus, EventStore, InMemoryEventStore, RunSummary, project_state
 
 try:
+    from orchestra.storage.sqlite import SQLiteEventStore, SnapshotManager
+
+    _sqlite_available = True
+except ImportError:
+    _sqlite_available = False
+
+try:
     from orchestra.storage.postgres import PostgresEventStore
 
     _postgres_available = True
 except ImportError:
+    PostgresEventStore = None  # type: ignore[assignment,misc]
     _postgres_available = False
 
 __all__ = [
@@ -76,6 +84,9 @@ __all__ = [
     # Contracts
     "BoundaryContract",
     "ContractRegistry",
+    # SQLite backend (optional — requires aiosqlite)
+    "SQLiteEventStore",
+    "SnapshotManager",
     # PostgreSQL backend (optional — requires asyncpg)
     "PostgresEventStore",
 ]
