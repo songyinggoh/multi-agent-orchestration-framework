@@ -36,6 +36,7 @@ dependencies = [
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.20"]
 google = ["google-generativeai>=0.5"]
+ollama = []  # No SDK needed, uses httpx (already in core)
 all-providers = ["orchestra-agents[anthropic,google]"]
 dev = [
     "pytest>=8.0",
