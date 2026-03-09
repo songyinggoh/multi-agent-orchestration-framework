@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from orchestra.core.errors import MCPTimeoutError
+from orchestra.core.errors import MCPTimeoutError, ToolNotFoundError
 from orchestra.core.protocols import Tool
 from orchestra.tools.mcp import MCPClient, MCPToolAdapter, load_mcp_config
 
@@ -284,7 +284,7 @@ class TestMCPClient:
 
     @pytest.mark.asyncio
     async def test_get_tool_missing_raises(self) -> None:
-        """get_tool() raises KeyError for an unknown tool name."""
+        """get_tool() raises ToolNotFoundError for an unknown tool name."""
         list_tools_response = MagicMock()
         list_tools_response.tools = []
 
@@ -310,7 +310,7 @@ class TestMCPClient:
         with patch.object(MCPClient, "_connect_stdio", patched_connect):
             await client.connect()
 
-        with pytest.raises(KeyError):
+        with pytest.raises(ToolNotFoundError):
             client.get_tool("nonexistent_tool")
 
 

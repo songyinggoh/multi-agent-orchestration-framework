@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestra.core.context import ExecutionContext
-from orchestra.core.errors import MCPConnectionError, MCPTimeoutError, MCPToolError
+from orchestra.core.errors import MCPConnectionError, MCPTimeoutError, MCPToolError, ToolNotFoundError
 from orchestra.core.types import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -318,8 +318,14 @@ class MCPClient:
         """Return a specific tool by name.
 
         Raises:
-            KeyError: If no tool with that name was discovered.
+            ToolNotFoundError: If no tool with that name was discovered.
         """
+        if name not in self._tools:
+            available = list(self._tools.keys())
+            raise ToolNotFoundError(
+                f"MCP tool '{name}' not found. Available tools: {available}. "
+                "Call discover_tools() again if the server's tool list changed."
+            )
         return self._tools[name]
 
     # ------------------------------------------------------------------
