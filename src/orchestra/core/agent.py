@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -88,6 +89,7 @@ class BaseAgent(BaseModel):
         total_usage = TokenUsage()
 
         for _iteration in range(self.max_iterations):
+            _llm_start = time.monotonic()
             response: LLMResponse = await llm.complete(
                 messages=full_messages,
                 model=self.model,
@@ -95,6 +97,7 @@ class BaseAgent(BaseModel):
                 temperature=self.temperature,
                 output_type=self.output_type,
             )
+            _llm_duration_ms = (time.monotonic() - _llm_start) * 1000.0
 
             # Accumulate token usage
             if response.usage:
@@ -102,6 +105,27 @@ class BaseAgent(BaseModel):
                 total_usage.output_tokens += response.usage.output_tokens
                 total_usage.total_tokens += response.usage.total_tokens
                 total_usage.estimated_cost_usd += response.usage.estimated_cost_usd
+
+            # Emit LLMCalled event (skip during replay to avoid side-effect duplication)
+            _replay = getattr(context, "replay_mode", False)
+            if context.event_bus is not None and not _replay:
+                from orchestra.storage.events import LLMCalled
+                _in_tok = response.usage.input_tokens if response.usage else 0
+                _out_tok = response.usage.output_tokens if response.usage else 0
+                _cost = response.usage.estimated_cost_usd if response.usage else 0.0
+                await context.event_bus.emit(
+                    LLMCalled(
+                        run_id=context.run_id,
+                        node_id=context.node_id,
+                        agent_name=self.name,
+                        model=self.model,
+                        input_tokens=_in_tok,
+                        output_tokens=_out_tok,
+                        cost_usd=_cost,
+                        duration_ms=_llm_duration_ms,
+                        finish_reason="tool_calls" if response.tool_calls else "stop",
+                    )
+                )
 
             if response.tool_calls:
                 # Add assistant message with tool calls
@@ -114,7 +138,10 @@ class BaseAgent(BaseModel):
 
                 # Execute each tool
                 for tool_call in response.tool_calls:
+                    _tool_start = time.monotonic()
                     tool_result = await self._execute_tool(tool_call, context)
+                    _tool_duration_ms = (time.monotonic() - _tool_start) * 1000.0
+
                     all_tool_records.append(
                         ToolCallRecord(
                             tool_call=tool_call,
@@ -129,6 +156,22 @@ class BaseAgent(BaseModel):
                             tool_call_id=tool_call.id,
                         )
                     )
+
+                    # Emit ToolCalled event
+                    if context.event_bus is not None and not _replay:
+                        from orchestra.storage.events import ToolCalled
+                        await context.event_bus.emit(
+                            ToolCalled(
+                                run_id=context.run_id,
+                                node_id=context.node_id,
+                                agent_name=self.name,
+                                tool_name=tool_call.name,
+                                arguments=dict(tool_call.arguments) if tool_call.arguments else {},
+                                result=tool_result.content,
+                                error=tool_result.error,
+                                duration_ms=_tool_duration_ms,
+                            )
+                        )
 
                 continue
 
@@ -188,7 +231,8 @@ class BaseAgent(BaseModel):
             )
 
         try:
-            return await tool.execute(tool_call.arguments, context=context)
+            result: ToolResult = await tool.execute(tool_call.arguments, context=context)
+            return result
         except Exception as e:
             return ToolResult(
                 tool_call_id=tool_call.id,
@@ -252,7 +296,7 @@ def agent(
             provider=provider,
         )
         agent_instance._original_func = func
-        functools.update_wrapper(agent_instance, func)
+        functools.update_wrapper(agent_instance, func)  # type: ignore[arg-type]
 
         return agent_instance
 
