@@ -14,8 +14,10 @@ jobs:
           fetch-depth: 0
       - run: |
           CLEAN_PAT=$(echo -n "$GITLAB_PAT" | tr -d '\n\r ')
-          git remote add gitlab "https://oauth2:${CLEAN_PAT}@gitlab.com/songyinggoh/multi-agent-orchestration-framework.git"
-          git push gitlab --all --force
-          git push gitlab --tags --force
+          AUTH=$(echo -n "oauth2:${CLEAN_PAT}" | base64 -w0)
+          HEADER="Authorization: Basic ${AUTH}"
+          git remote add gitlab "https://gitlab.com/songyinggoh/multi-agent-orchestration-framework.git"
+          git -c "http.https://gitlab.com/.extraheader=${HEADER}" push gitlab --all --force
+          git -c "http.https://gitlab.com/.extraheader=${HEADER}" push gitlab --tags --force
         env:
           GITLAB_PAT: ${{ secrets.GITLAB }}
