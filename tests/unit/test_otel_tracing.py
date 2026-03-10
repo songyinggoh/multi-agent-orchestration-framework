@@ -409,3 +409,44 @@ class TestGracefulDegradation:
         finally:
             # Restore modules
             sys.modules.update(hidden)
+
+
+class TestAPIIntegration:
+    """Verify integration with FastAPI instrumentation."""
+
+    @pytest.fixture()
+    def app(self):
+        from orchestra.server.app import create_app
+        from orchestra.server.config import ServerConfig
+
+        config = ServerConfig()
+        application = create_app(config)
+        return application
+
+    @pytest.fixture()
+    def client(self, app):
+        from fastapi.testclient import TestClient
+
+        with TestClient(app, raise_server_exceptions=False) as c:
+            graph = MagicMock()
+            graph.name = "test-graph"
+            app.state.graph_registry.register("test-graph", graph)
+            yield c
+
+    def test_api_request_creates_full_trace_hierarchy(self, client, subscriber, otel_setup):
+        # Simulate the full event flow triggered by an API call.
+        # OTelTraceSubscriber picks up the current OTel context automatically,
+        # so workflow spans created here will have proper parent-child links.
+        subscriber.on_event(_exec_started())
+        subscriber.on_event(_node_started("triage"))
+        subscriber.on_event(_llm_called())
+        subscriber.on_event(_node_completed("triage"))
+        subscriber.on_event(_exec_completed())
+
+        spans = otel_setup.get_finished_spans()
+        workflow_spans = [s for s in spans if s.name == "workflow.run"]
+        node_spans = [s for s in spans if s.name == "node.triage"]
+        assert len(workflow_spans) == 1
+        assert len(node_spans) == 1
+        # Node is a child of the workflow span
+        assert node_spans[0].parent.span_id == workflow_spans[0].context.span_id

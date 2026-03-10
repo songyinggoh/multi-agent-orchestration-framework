@@ -28,6 +28,7 @@ class EventType(str, Enum):
     INTERRUPT_RESUMED = "interrupt.resumed"
     CHECKPOINT_CREATED = "checkpoint.created"
     SECURITY_VIOLATION = "security.violation"
+    INPUT_REJECTED = "input.rejected"
     OUTPUT_REJECTED = "output.rejected"
     HANDOFF_INITIATED = "handoff.initiated"
     HANDOFF_COMPLETED = "handoff.completed"
@@ -217,6 +218,19 @@ class SecurityViolation(WorkflowEvent):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+# --- Guardrail Events ---
+
+
+class InputRejected(WorkflowEvent):
+    """Emitted when agent input fails a guardrail check."""
+
+    event_type: Literal[EventType.INPUT_REJECTED] = EventType.INPUT_REJECTED
+    node_id: str
+    agent_name: str = ""
+    guardrail: str = ""
+    violation_messages: list[str] = Field(default_factory=list)
+
+
 # --- Contract Events ---
 
 
@@ -270,6 +284,7 @@ AnyEvent = Annotated[
         InterruptResumed,
         CheckpointCreated,
         SecurityViolation,
+        InputRejected,
         OutputRejected,
         HandoffInitiated,
         HandoffCompleted,

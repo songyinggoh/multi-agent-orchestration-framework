@@ -160,3 +160,10 @@ class MCPToolError(MCPError):
 
 class MCPTimeoutError(MCPError):
     """Raised when MCP server times out."""
+
+
+# --- Budget Errors ---
+
+
+class BudgetExceededError(OrchestraError):
+    """Raised when a hard budget limit is exceeded before an LLM call."""
