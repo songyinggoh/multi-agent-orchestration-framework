@@ -13,7 +13,8 @@ jobs:
         with:
           fetch-depth: 0
       - run: |
-          git remote add gitlab "https://oauth2:${GITLAB_PAT}@gitlab.com/songyinggoh/multi-agent-orchestration-framework.git"
+          CLEAN_PAT=$(echo -n "$GITLAB_PAT" | tr -d '\n\r ')
+          git remote add gitlab "https://oauth2:${CLEAN_PAT}@gitlab.com/songyinggoh/multi-agent-orchestration-framework.git"
           git push gitlab --all --force
           git push gitlab --tags --force
         env:
