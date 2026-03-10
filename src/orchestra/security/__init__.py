@@ -29,6 +29,8 @@ from orchestra.security.rebuff import (
     rebuff_tool,
 )
 
+from orchestra.security.guardrails import Guardrail, GuardrailViolation
+
 __all__ = [
     "RebuffChecker",
     "InjectionDetectionResult",
@@ -37,4 +39,6 @@ __all__ = [
     "InjectionAuditorAgent",
     "make_injection_guard_node",
     "rebuff_tool",
+    "Guardrail",
+    "GuardrailViolation",
 ]
