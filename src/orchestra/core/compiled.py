@@ -183,6 +183,32 @@ class CompiledGraph:
             except ImportError:
                 _renderer = None
 
+        # 2c. OTel trace subscriber (optional)
+        try:
+            from orchestra.observability.tracing import OTelTraceSubscriber
+            _otel_subscriber = OTelTraceSubscriber()
+            event_bus.subscribe(_otel_subscriber.on_event)
+        except ImportError:
+            pass
+
+        # 2d. OTel metrics subscriber (optional)
+        try:
+            from orchestra.observability.metrics import OTelMetricsSubscriber
+            _otel_metrics = OTelMetricsSubscriber()
+            event_bus.subscribe(_otel_metrics.on_event)
+        except ImportError:
+            pass
+
+        # 2e. Cost aggregator (optional)
+        _cost_aggregator = None
+        try:
+            from orchestra.cost.aggregator import CostAggregator
+            _cost_aggregator = CostAggregator()
+            event_bus.subscribe(_cost_aggregator.on_event)
+            context.config["_cost_aggregator"] = _cost_aggregator
+        except ImportError:
+            pass
+
         # 3. Emit RunStarted
         run_start_time = datetime.now(timezone.utc)
         await event_bus.emit(
@@ -561,12 +587,24 @@ class CompiledGraph:
                     error_message=str(exc),
                 )
             )
+
+            totals = context.config.get("_usage_totals", {}) if context is not None else {}
+            _tok = int(totals.get("total_tokens", 0) or 0)
+            _cost = float(totals.get("total_cost_usd", 0.0) or 0.0)
+            # Prefer cost aggregator data when available
+            _agg = context.config.get("_cost_aggregator") if context is not None else None
+            if _agg is not None:
+                _agg_totals = _agg.get_totals(effective_run_id)
+                _tok = _tok or int(_agg_totals.get("total_tokens", 0))
+                _cost = _cost or float(_agg_totals.get("total_cost_usd", 0.0))
             await event_bus.emit(
                 ExecutionCompleted(
                     run_id=effective_run_id,
                     sequence=event_bus.next_sequence(effective_run_id),
                     final_state={},
                     duration_ms=duration_ms,
+                    total_tokens=_tok,
+                    total_cost_usd=_cost,
                     status="failed",
                 )
             )
@@ -585,12 +623,23 @@ class CompiledGraph:
         # 5a. Emit RunCompleted
         final_state_dict = state.model_dump() if isinstance(state, WorkflowState) else dict(state)
         duration_ms = (datetime.now(timezone.utc) - run_start_time).total_seconds() * 1000
+        totals = context.config.get("_usage_totals", {}) if context is not None else {}
+        _tok = int(totals.get("total_tokens", 0) or 0)
+        _cost = float(totals.get("total_cost_usd", 0.0) or 0.0)
+        # Prefer cost aggregator data when available
+        _agg = context.config.get("_cost_aggregator") if context is not None else None
+        if _agg is not None:
+            _agg_totals = _agg.get_totals(effective_run_id)
+            _tok = _tok or int(_agg_totals.get("total_tokens", 0))
+            _cost = _cost or float(_agg_totals.get("total_cost_usd", 0.0))
         await event_bus.emit(
             ExecutionCompleted(
                 run_id=effective_run_id,
                 sequence=event_bus.next_sequence(effective_run_id),
                 final_state=final_state_dict,
                 duration_ms=duration_ms,
+                total_tokens=_tok,
+                total_cost_usd=_cost,
                 status="completed",
             )
         )
@@ -680,7 +729,76 @@ class CompiledGraph:
                 agent_input = input_text
 
         # Execute agent
+        # --- Guardrails (pre) ---
+        guardrails = context.get_config("guardrails")
+        guard_fail = context.get_config("guardrails_fail", "refuse")
+        if guardrails:
+            from orchestra.security.guardrails import Guardrail
+
+            messages = []
+            if isinstance(agent_input, list):
+                messages = agent_input
+            elif isinstance(agent_input, str):
+                from orchestra.core.types import Message, MessageRole
+                messages = [Message(role=MessageRole.USER, content=agent_input)]
+
+            violations: list[str] = []
+            for g in guardrails:
+                if (isinstance(g, Guardrail) or hasattr(g, "validate_input")) and messages:
+                    v = await g.validate_input(messages=messages, model=getattr(agent, "model", None))
+                    violations.extend([getattr(vv, "message", str(vv)) for vv in v])
+
+            if violations:
+                try:
+                    from orchestra.storage.events import InputRejected
+                    if context.event_bus is not None and not context.replay_mode:
+                        await context.event_bus.emit(
+                            InputRejected(
+                                run_id=context.run_id,
+                                sequence=context.event_bus.next_sequence(context.run_id),
+                                node_id=node_id,
+                                agent_name=getattr(agent, "name", ""),
+                                guardrail=getattr(guardrails[0], "name", "guardrail"),
+                                violation_messages=violations,
+                            )
+                        )
+                except Exception:
+                    pass
+                if str(guard_fail) == "raise":
+                    raise AgentError("Guardrail rejected input")
+                return {"output": "Guardrail rejected input", "guardrails": {"violations": violations}}
+
         result: AgentResult = await agent.run(agent_input, context)
+
+        # --- Guardrails (post) ---
+        if guardrails and result.output:
+            from orchestra.security.guardrails import Guardrail
+
+            post_violations: list[str] = []
+            for g in guardrails:
+                if isinstance(g, Guardrail) or hasattr(g, "validate_output"):
+                    v = await g.validate_output(output_text=result.output, model=getattr(agent, "model", None))
+                    post_violations.extend([getattr(vv, "message", str(vv)) for vv in v])
+
+            if post_violations:
+                try:
+                    from orchestra.storage.events import OutputRejected
+                    if context.event_bus is not None and not context.replay_mode:
+                        await context.event_bus.emit(
+                            OutputRejected(
+                                run_id=context.run_id,
+                                sequence=context.event_bus.next_sequence(context.run_id),
+                                node_id=node_id,
+                                agent_name=getattr(agent, "name", ""),
+                                contract_name=getattr(guardrails[0], "name", "guardrail"),
+                                validation_errors=post_violations,
+                            )
+                        )
+                except Exception:
+                    pass
+                if str(guard_fail) == "raise":
+                    raise AgentError("Guardrail rejected output")
+                return {"output": "Guardrail rejected output", "guardrails": {"violations": post_violations}}
 
         # Custom output mapper overrides everything
         if node.output_mapper:

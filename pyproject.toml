@@ -37,9 +37,31 @@ dependencies = [
 anthropic = ["anthropic>=0.20"]
 google = ["google-generativeai>=0.5"]
 ollama = []  # No SDK needed, uses httpx (already in core)
-all-providers = ["orchestra-agents[anthropic,google]"]
+all-providers = ["orchestra-agents[anthropic,google,nats,ray]"]
 storage = ["aiosqlite>=0.19"]
 postgres = ["asyncpg>=0.29"]
+telemetry = [
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
+    "opentelemetry-semantic-conventions>=0.45b0",
+]
+cache = [
+    "cachetools>=5.5",
+    "diskcache>=5.6",
+]
+server = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sse-starlette>=2.1",
+]
+security = [
+    "wasmtime>=23.0",
+    "joserfc>=1.0",
+    "pynacl>=1.5",
+]
+nats = ["nats-py>=2.8"]
+ray = ["ray[serve]>=2.10"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -47,6 +69,10 @@ dev = [
     "ruff>=0.3",
     "mypy>=1.8",
     "pre-commit>=3.6",
+]
+test-advanced = [
+    "locust>=2.20",
+    "hypothesis>=6.100",
 ]
 docs = [
     "mkdocs>=1.5",
