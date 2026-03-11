@@ -5,6 +5,7 @@ stages:
   - lint
   - typecheck
   - test
+  - smoke-test
   - security
 
 variables:
@@ -100,6 +101,27 @@ integration-test:
   allow_failure: true  # integration tests may need external services
 
 # ---------------------------------------------------------------------------
+# Security Smoke Tests (Phase 4 Foundation)
+# ---------------------------------------------------------------------------
+security-smoke-tests:
+  stage: smoke-test
+  image: python:3.12
+  services:
+    - name: nats:latest
+      alias: nats
+  cache:
+    key: pip-3.12
+    paths:
+      - .pip-cache/
+  script:
+    - pip install -e ".[dev,security,nats,ray]"
+    - pytest tests/security/ -x --junitxml=report-smoke.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-smoke.xml
+
+# ---------------------------------------------------------------------------
 # Security — Secret Detection
 # ---------------------------------------------------------------------------
 include:
@@ -109,9 +131,9 @@ include:
 secret_detection:
   stage: security
   needs:
-    - test-py312
+    - security-smoke-tests
 
 dependency_scanning:
   stage: security
   needs:
-    - test-py312
+    - security-smoke-tests
