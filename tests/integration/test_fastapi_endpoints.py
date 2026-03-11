@@ -67,6 +67,15 @@ def client(app: Any) -> Any:
         yield c
 
 
+@pytest.fixture()
+async def aclient(app: Any) -> AsyncIterator[AsyncClient]:
+    """Asynchronous test client."""
+    graph = _make_test_graph()
+    app.state.graph_registry.register("test-graph", graph)
+    async with AsyncClient(app=app, base_url="http://test") as c:
+        yield c
+
+
 # ---------------------------------------------------------------------------
 # Health checks
 # ---------------------------------------------------------------------------
@@ -101,6 +110,15 @@ def test_create_run_returns_202(client: Any) -> None:
     assert "run_id" in data
 
 
+def test_create_run_invalid_input_returns_422(client: Any) -> None:
+    """Test for Pydantic validation error."""
+    response = client.post(
+        "/api/v1/runs",
+        json={"graph_name": "test-graph", "input": "not-a-dict"},
+    )
+    assert response.status_code == 422
+
+
 def test_get_run_status(client: Any) -> None:
     # Create a run first
     create_resp = client.post(
@@ -118,6 +136,41 @@ def test_get_run_status(client: Any) -> None:
     data = response.json()
     assert data["run_id"] == run_id
     assert data["status"] in ("running", "completed")
+
+
+async def test_full_run_lifecycle(aclient: AsyncClient) -> None:
+    """Create a run, stream its output, verify final status."""
+    # 1. Create the run
+    create_resp = await aclient.post(
+        "/api/v1/runs",
+        json={"graph_name": "test-graph", "input": {"input": "lifecycle"}},
+    )
+    assert create_resp.status_code == 202
+    run_id = create_resp.json()["run_id"]
+
+    # 2. Stream the output
+    async with aclient.stream("GET", f"/api/v1/runs/{run_id}/stream") as response:
+        assert response.status_code == 200
+        events = []
+        async for line in response.aiter_lines():
+            if line.startswith("data:"):
+                import json
+                events.append(json.loads(line[5:]))
+
+    # We expect start, progress, and end events for this simple graph
+    assert len(events) >= 3
+    assert events[0]["event"] == "run_start"
+    assert events[1]["event"] == "node_end"
+    assert events[-1]["event"] == "run_end"
+    assert events[-1]["data"]["final_output"]["output"] == "lifecycle"
+
+    # 3. Verify final status
+    status_resp = await aclient.get(f"/api/v1/runs/{run_id}")
+    assert status_resp.status_code == 200
+    status_data = status_resp.json()
+    assert status_data["status"] == "completed"
+    assert status_data["output"]["output"] == "lifecycle"
+
 
 
 def test_list_runs(client: Any) -> None:
@@ -178,7 +231,7 @@ def test_get_graph_not_found(client: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Resume (basic path — expects 404 since the run hasn't checkpointed)
+# Resume
 # ---------------------------------------------------------------------------
 
 
@@ -202,3 +255,18 @@ def test_resume_run(client: Any) -> None:
     )
     # 200 if accepted, or could get an error from the resume attempt
     assert response.status_code in (200, 404, 500)
+
+
+def test_resume_completed_run_returns_409(client: Any) -> None:
+    # Create a run and let it complete
+    create_resp = client.post(
+        "/api/v1/runs",
+        json={"graph_name": "test-graph", "input": {"input": "complete-me"}},
+    )
+    run_id = create_resp.json()["run_id"]
+    time.sleep(0.5)  # Ensure it's completed
+
+    # Try to resume it
+    response = client.post(f"/api/v1/runs/{run_id}/resume", json={})
+    assert response.status_code == 409
+    assert "already completed" in response.json()["detail"]
