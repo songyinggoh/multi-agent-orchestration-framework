@@ -14,7 +14,7 @@ COPY README.md .
 COPY src/ src/
 
 # Install the package with all Phase 4 features
-RUN pip install --no-cache-dir -e ".[server,telemetry,cache,storage,postgres,nats,ray,security]"
+RUN pip install --no-cache-dir ".[server,telemetry,cache,storage,postgres,nats,ray,security]"
 
 # Default environment variables
 ENV ORCHESTRA_PORT=8080
