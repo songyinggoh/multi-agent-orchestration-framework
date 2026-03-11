@@ -70,6 +70,10 @@ dev = [
     "mypy>=1.8",
     "pre-commit>=3.6",
 ]
+test-advanced = [
+    "locust>=2.20",
+    "hypothesis>=6.100",
+]
 docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.5",
