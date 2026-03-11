@@ -48,12 +48,26 @@ typecheck:
 # ---------------------------------------------------------------------------
 .test-base:
   stage: test
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+    - name: redis:7-alpine
+      alias: redis
+    - name: nats:2.10-alpine
+      alias: nats
+  variables:
+    POSTGRES_DB: test_db
+    POSTGRES_USER: user
+    POSTGRES_PASSWORD: password
+    DATABASE_URL: "postgresql://user:password@postgres:5432/test_db"
+    REDIS_URL: "redis://redis:6379"
+    NATS_URL: "nats://nats:4222"
   cache:
     key: pip-${PYTHON_VERSION}
     paths:
       - .pip-cache/
   script:
-    - pip install -e ".[dev,server,telemetry,cache,storage]"
+    - pip install -e ".[dev,server,telemetry,cache,storage,postgres,nats,ray,security]"
     - pytest tests/ -m "not integration" -x --junitxml=report.xml --cov=orchestra --cov-report=xml
   artifacts:
     when: always
@@ -87,12 +101,26 @@ test-py313:
 integration-test:
   stage: test
   image: python:3.12
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+    - name: redis:7-alpine
+      alias: redis
+    - name: nats:2.10-alpine
+      alias: nats
+  variables:
+    POSTGRES_DB: test_db
+    POSTGRES_USER: user
+    POSTGRES_PASSWORD: password
+    DATABASE_URL: "postgresql://user:password@postgres:5432/test_db"
+    REDIS_URL: "redis://redis:6379"
+    NATS_URL: "nats://nats:4222"
   cache:
     key: pip-3.12
     paths:
       - .pip-cache/
   script:
-    - pip install -e ".[dev,server,telemetry,cache,storage]"
+    - pip install -e ".[dev,server,telemetry,cache,storage,postgres,nats,ray,security]"
     - pytest tests/ -m integration -x --junitxml=report-integration.xml
   artifacts:
     when: always
@@ -107,7 +135,7 @@ security-smoke-tests:
   stage: smoke-test
   image: python:3.12
   services:
-    - name: nats:latest
+    - name: nats:2.10-alpine
       alias: nats
   cache:
     key: pip-3.12
